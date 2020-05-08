@@ -1,12 +1,14 @@
 #!flask/bin/python
 from flask import Flask
 import flask
+from flask import Flask, jsonify, abort, request, make_response, url_for
+import json_unpacker
+import matching_model
 from user import User
 from team import Team
 import user
 import json
 import clustering as clst
-import top_trading_cycles as ttc
 
 def extract_users(req):
 	exper_data,users = ([],[])
@@ -21,12 +23,12 @@ def extract_users(req):
 def send_teams_as_json(teams): #this method currently uses the classes defined for bidding
 	json_obj = [[user.pid for user in team.members] for team in teams]
 	return flask.Response(json.dumps({"teams":json_obj,"users":flask.request.json['users']}),  mimetype='application/json')
-	
+
 def extract_task_data(req):
 	#extract json data and convert to python object here
 	#do not necessarily have to use user class here, it is already defined if you would like to use it
 	return req
-	
+
 def send_assigned_tasks_as_json(tasks):
 	#convert python objects to simple maps and lists
 	return flask.Response(json.dumps({"info":tasks}))
@@ -41,14 +43,16 @@ def clstbuild():
     teams,users = clst.kmeans_assignment(data,users, flask.request.json['max_team_size'])
     return send_teams_as_json(teams)
 
-@app.route('/assign_tasks',methods=['POST']) #Add topic code here
-def ttctrading():
-	if not 'users' in flask.request.json or not 'teams' in flask.request.json or sum([not 'history' in user or not 'ranks' in user or not 'pid' in user for user in flask.request.json['users']]) > 0: #check for required fields in json request here
-		flask.abort(400)
-	users = extract_task_data(flask.request.json) #extract json data into necessary format
-	
-	assignments = ttc.team_swap(users) #method where assignment algorithm is run
-	return send_assigned_tasks_as_json(assignments) #returning a flask response object
+@app.route("/match", methods=['POST']) #using the post method with /match in the url to get the required app route
+def matching():
+    if not request.json: #will abort the request if it fails to load the json
+        abort(400)  #will have a return status of 400 in case of failure
+    bidding_data = json_unpacker.JsonUnpacker(request.json) #calles the json_unpacker to get the necessary bidding_data
+    model = matching_model.MatchingModel(bidding_data.student_ids,
+                                bidding_data.topic_ids,
+                                bidding_data.student_preferences_map,
+                                bidding_data.topic_preferences_map, bidding_data.q_S) #model to get the student_ids,topic_ids,student_preference_map,topic_prefernce_map
+    return jsonify(model.get_matching()) #returns a json object
 
 if __name__ == "__main__":
 	app.run(debug=True)
